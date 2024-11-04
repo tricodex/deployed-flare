@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
-import {RSA} from "@openzeppelin/contracts/utils/cryptography/RSA.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-
+import {ITokenType} from "./interfaces/ITokenType.sol";
+import {IAttestation} from "./interfaces/IAttestation.sol";
 import {
-    VtpmConfig, BaseVtpmConfig, SignatureVerificationFailed, PayloadValidationFailed
-} from "./types/VtpmStructs.sol";
+    VtpmConfig,
+    BaseVtpmConfig,
+    SignatureVerificationFailed,
+    PayloadValidationFailed,
+    Header
+} from "./types/Common.sol";
 
 /**
  * @title FlareVtpmAttestation
  * @dev Contract for verifying RSA-signed JWTs and registering vTPM attestations.
  */
-contract FlareVtpmAttestation is Ownable {
+contract FlareVtpmAttestation is IAttestation, Ownable {
     /// @notice Mapping of registered vTPM configurations by address
     mapping(address => VtpmConfig) public registeredQuotes;
 
@@ -23,14 +26,10 @@ contract FlareVtpmAttestation is Ownable {
     /// @notice Event emitted when the base vTPM configuration is updated
     event BaseVtpmConfigUpdated(string indexed imageDigest, string hwname, string swname, string iss, bool secboot);
 
-    /// @notice Event emitted when a new OIDC RSA public key is added
-    event OidcPubKeyAdded(bytes indexed kid, bytes e, bytes n);
-
     /// @notice The required base vTPM configuration for verification
     BaseVtpmConfig internal requiredConfig;
 
-    /// @notice Mapping of RSA public keys by Key ID (kid)
-    mapping(bytes => RSAPubKey) internal rsaPubKeys;
+    mapping(bytes tokenType => ITokenType verifier) public tokenTypeVerifiers;
 
     /// @dev Struct representing an RSA public key
     struct RSAPubKey {
@@ -43,15 +42,9 @@ contract FlareVtpmAttestation is Ownable {
      */
     constructor() Ownable(msg.sender) {}
 
-    /**
-     * @dev Adds an OIDC RSA public key to the contract.
-     * @param kid The Key ID (identifier for the key).
-     * @param e The exponent of the RSA public key.
-     * @param n The modulus of the RSA public key.
-     */
-    function addOidcPubKey(bytes memory kid, bytes memory e, bytes memory n) external onlyOwner {
-        rsaPubKeys[kid] = RSAPubKey({e: e, n: n});
-        emit OidcPubKeyAdded(kid, e, n);
+    function setTokenTypeVerifier(address verifier) external onlyOwner {
+        ITokenType tokenTypeVerifier = ITokenType(verifier);
+        tokenTypeVerifiers[tokenTypeVerifier.tokenType()] = tokenTypeVerifier;
     }
 
     /**
@@ -81,26 +74,31 @@ contract FlareVtpmAttestation is Ownable {
 
     /**
      * @dev Verifies an RSA-signed JWT and registers the token if verification succeeds.
-     * @param header The JWT header as bytes (Base64URL decoded).
-     * @param payload The JWT payload as bytes (Base64URL decoded).
-     * @param signature The RSA signature of the JWT.
+     * @param rawHeader The JWT header as bytes (Base64URL decoded).
+     * @param rawPayload The JWT payload as bytes (Base64URL decoded).
+     * @param rawSignature The RSA signature of the JWT.
      * @return success True if the token was successfully verified and registered.
      */
-    function verifyAndAttest(bytes calldata header, bytes calldata payload, bytes calldata signature)
+    function verifyAndAttest(bytes calldata rawHeader, bytes calldata rawPayload, bytes calldata rawSignature)
         external
         returns (bool success)
     {
         // Parse the Key ID (kid) from the JWT header
-        bytes memory kid = parseHeader(header);
+        Header memory header = parseHeader(rawHeader);
 
-        // Verify the RSA signature of the JWT
-        (bool verified, bytes32 digest) = verifyRsaSignature(header, payload, signature, kid);
+        ITokenType quoteVerifier = tokenTypeVerifiers[header.tokenType];
+        if (address(quoteVerifier) == address(0)) {
+            revert SignatureVerificationFailed();
+        }
+
+        // Verify the signature of the JWT
+        (bool verified, bytes32 digest) = quoteVerifier.verifySignature(rawHeader, rawPayload, rawSignature, header);
         if (!verified) {
             revert SignatureVerificationFailed();
         }
 
         // Parse the payload to extract the vTPM configuration
-        VtpmConfig memory payloadConfig = parsePayload(payload);
+        VtpmConfig memory payloadConfig = parsePayload(rawPayload);
 
         // Ensure that the payload contains the required fields
         if (payloadConfig.exp < block.timestamp) {
@@ -137,45 +135,19 @@ contract FlareVtpmAttestation is Ownable {
     }
 
     /**
-     * @dev Verifies an RSA-signed JWT.
-     * @param header The JWT header as bytes (after Base64URL decoding).
-     * @param payload The JWT payload as bytes (after Base64URL decoding).
-     * @param signature The RSA signature of the JWT (after Base64URL decoding).
-     * @param kid The Key ID used to look up the RSA public key.
-     * @return verified True if the signature is verified.
-     * @return digest The SHA256 hash of the signing input (header + "." + payload).
-     */
-    function verifyRsaSignature(
-        bytes calldata header,
-        bytes calldata payload,
-        bytes calldata signature,
-        bytes memory kid
-    ) public view returns (bool verified, bytes32 digest) {
-        // Construct the signing input as per JWT standards
-        string memory headerB64URL = Base64.encodeURL(header);
-        string memory payloadB64URL = Base64.encodeURL(payload);
-
-        bytes memory signingInput = abi.encodePacked(headerB64URL, ".", payloadB64URL);
-
-        // Compute the SHA256 hash of the signing input
-        digest = sha256(signingInput);
-
-        // Retrieve the RSA public key using the kid
-        RSAPubKey storage rsaPublicKey = rsaPubKeys[kid];
-
-        // Verify the RSA signature
-        verified = RSA.pkcs1Sha256(digest, signature, rsaPublicKey.e, rsaPublicKey.n);
-    }
-
-    /**
      * @dev Parses the Key ID (kid) from the JWT header.
-     * @param header The JWT header as bytes (after Base64URL decoding).
-     * @return kid The Key ID extracted from the header.
+     * @param rawHeader The JWT header as bytes (after Base64URL decoding).
+     * @return header The Header struct extracted from rawHeader.
      */
-    function parseHeader(bytes calldata header) public pure returns (bytes memory kid) {
+    function parseHeader(bytes calldata rawHeader) public pure returns (Header memory header) {
         // Extract the 'kid' field from the header
         // Assumes that the 'kid' is located at bytes 22 to 62 in the header
-        kid = header[22:62];
+        header.kid = rawHeader[22:62];
+        if (contains(rawHeader, bytes("x5c"))) {
+            header.tokenType = bytes("PKI");
+        } else {
+            header.tokenType = bytes("OIDC");
+        }
     }
 
     /**

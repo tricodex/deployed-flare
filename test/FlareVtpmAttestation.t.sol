@@ -5,7 +5,9 @@ import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 
 import {FlareVtpmAttestation} from "../src/FlareVtpmAttestation.sol";
-import {VtpmConfig, SignatureVerificationFailed, PayloadValidationFailed} from "../src/types/VtpmStructs.sol";
+import {OidcSignatureVerification} from "../src/verifiers/OidcSignatureVerification.sol";
+
+import {VtpmConfig, SignatureVerificationFailed, PayloadValidationFailed, Header} from "../src/types/Common.sol";
 
 /**
  * @title FlareVtpmAttestationTest
@@ -14,6 +16,7 @@ import {VtpmConfig, SignatureVerificationFailed, PayloadValidationFailed} from "
 contract FlareVtpmAttestationTest is Test {
     /// @notice Instance of the contract to be tested
     FlareVtpmAttestation public flareVtpm;
+    OidcSignatureVerification oidcVerifier;
 
     // Example attestation token components for testing
     bytes constant HEADER =
@@ -28,6 +31,7 @@ contract FlareVtpmAttestationTest is Test {
     uint256 constant IAT = 1730678012;
 
     // Example RSA public key components
+    bytes constant TOKENTYPE = bytes("OIDC");
     bytes constant KID = bytes("4676c490dc43829636595442e93cdc5d27aaa279"); // Key ID
     bytes constant E = hex"010001"; // Public exponent
     bytes constant N =
@@ -53,8 +57,10 @@ contract FlareVtpmAttestationTest is Test {
         // Set the required vTPM configuration in the contract
         flareVtpm.setBaseVtpmConfig(HWMODEL, SWNAME, IMAGEDIGEST, ISS, SECBOOT);
 
+        oidcVerifier = new OidcSignatureVerification();
+        flareVtpm.setTokenTypeVerifier(address(oidcVerifier));
         // Add the RSA public key to the contract's key registry
-        flareVtpm.addOidcPubKey(KID, E, N);
+        oidcVerifier.addPubKey(KID, E, N);
     }
 
     /**
@@ -62,7 +68,8 @@ contract FlareVtpmAttestationTest is Test {
      * is correctly verified and that the digest matches the expected value.
      */
     function test_verifyRsaSignature() public view {
-        (bool verified, bytes32 digest) = flareVtpm.verifyRsaSignature(HEADER, PAYLOAD, SIGNATURE, KID);
+        Header memory header = flareVtpm.parseHeader(HEADER);
+        (bool verified, bytes32 digest) = oidcVerifier.verifySignature(HEADER, PAYLOAD, SIGNATURE, header);
 
         // Verify that the RSA signature is valid
         assertEq(verified, true, "RSA signature could not be verified");
@@ -75,8 +82,9 @@ contract FlareVtpmAttestationTest is Test {
      * @dev Tests the parseHeader function to ensure that the Key ID (kid) is correctly extracted from the JWT header.
      */
     function test_parseHeader() public view {
-        bytes memory kid = flareVtpm.parseHeader(HEADER);
-        assertEq(kid, KID, "Invalid kid");
+        Header memory header = flareVtpm.parseHeader(HEADER);
+        assertEq(header.kid, KID, "Invalid kid");
+        assertEq(header.tokenType, TOKENTYPE, "Invalid tokenType");
     }
 
     /**

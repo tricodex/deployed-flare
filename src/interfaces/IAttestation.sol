@@ -10,12 +10,12 @@ pragma solidity >=0.8.20;
 interface IAttestation {
     /**
      * @notice Verifies an RSA-signed JWT and registers the token if verification succeeds.
-     * @param header The Base64URL decoded JWT header as bytes.
-     * @param payload The Base64URL decoded JWT payload as bytes.
-     * @param signature The Base64URL decoded RSA signature of the JWT.
+     * @param rawHeader The Base64URL decoded JWT header as bytes.
+     * @param rawPayload The Base64URL decoded JWT payload as bytes.
+     * @param rawSignature The Base64URL decoded RSA signature of the JWT.
      * @return success True if the token was successfully verified and registered.
      */
-    function verifyAndAttest(bytes calldata header, bytes calldata payload, bytes calldata signature)
+    function verifyAndAttest(bytes calldata rawHeader, bytes calldata rawPayload, bytes calldata rawSignature)
         external
         returns (bool success);
 }

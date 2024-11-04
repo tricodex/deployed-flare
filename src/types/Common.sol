@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+/// @dev Struct representing a token header configuration
+struct Header {
+    bytes kid;
+    bytes tokenType;
+}
+
 /// @dev Struct representing the base vTPM configuration
 struct BaseVtpmConfig {
     bytes hwmodel;
