@@ -3,6 +3,8 @@
 Flare vTPM Attestation is a Solidity-based implementation designed to verify Virtual Trusted Platform Module (vTPM) quotes generated within Google Cloud Platform’s (GCP) Confidential Space. 
 This solution enables the permissionless onboarding of multiple Trusted Execution Environments (TEEs) on Flare, establishing a verifiable chain of trust across the network.
 
+Verification cost: Approx. 2M gas
+
 ## Requirements
 
 - [Solidity](https://soliditylang.org) v0.8.20 or higher
@@ -44,17 +46,3 @@ To maintain code consistency and adhere to Solidity style guidelines, format the
 ```bash
 forge fmt
 ```
-
-## Gas costs
-
-| src/FlareVtpmAttestation.sol:FlareVtpmAttestation contract |                 |         |         |         |         |
-| ---------------------------------------------------------- | --------------- | ------- | ------- | ------- | ------- |
-| Deployment Cost                                            | Deployment Size |         |         |         |         |
-| 2262676                                                    | 10273           |         |         |         |         |
-| Function Name                                              | min             | avg     | median  | max     | # calls |
-| addOidcPubKey                                              | 259441          | 259441  | 259441  | 259441  | 4       |
-| parseHeader                                                | 1261            | 1261    | 1261    | 1261    | 1       |
-| parsePayload                                               | 1124982         | 1124982 | 1124982 | 1124982 | 1       |
-| setVtpmConfig                                              | 256323          | 256323  | 256323  | 256323  | 4       |
-| verifyAndAttest                                            | 1816353         | 1816353 | 1816353 | 1816353 | 1       |
-| verifyRsaSignature                                         | 317251          | 317251  | 317251  | 317251  | 1       |
