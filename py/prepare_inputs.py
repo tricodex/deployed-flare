@@ -90,7 +90,7 @@ def print_oidc_pub_key_inputs(header_json: dict) -> None:
 
 
 if __name__ == "__main__":
-    raw_token = read_data(Path("data/oidc"))
+    raw_token = read_data(Path("data/oidc.txt"))
     header_b64, payload_b64, signature_b64 = extract_jwt_parts(raw_token)
 
     # Decode header and payload

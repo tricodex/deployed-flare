@@ -194,7 +194,7 @@ if __name__ == "__main__":
     )
 
     # Load the PKI attestation token to validate
-    with Path("data/pki").open("r") as f:
+    with Path("data/pki.txt").open("r") as f:
         attestation_token = f.read()
 
     # Validate the PKI token
