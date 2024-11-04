@@ -61,7 +61,7 @@ contract FlareVtpmAttestationTest is Test {
      * @dev Tests the verifyRsaSignature function to ensure that the RSA signature
      * is correctly verified and that the digest matches the expected value.
      */
-    function test_verifyRsaSignature() public {
+    function test_verifyRsaSignature() public view {
         (bool verified, bytes32 digest) = flareVtpm.verifyRsaSignature(HEADER, PAYLOAD, SIGNATURE, KID);
 
         // Verify that the RSA signature is valid
@@ -74,7 +74,7 @@ contract FlareVtpmAttestationTest is Test {
     /**
      * @dev Tests the parseHeader function to ensure that the Key ID (kid) is correctly extracted from the JWT header.
      */
-    function test_parseHeader() public {
+    function test_parseHeader() public view {
         bytes memory kid = flareVtpm.parseHeader(HEADER);
         assertEq(kid, KID, "Invalid kid");
     }
@@ -83,7 +83,7 @@ contract FlareVtpmAttestationTest is Test {
      * @dev Tests the parsePayload function to ensure that the payload is correctly parsed
      * and that the extracted values match the expected configuration.
      */
-    function test_parsePayload() public {
+    function test_parsePayload() public view {
         VtpmConfig memory config = flareVtpm.parsePayload(PAYLOAD);
 
         assertEq(config.exp, EXP, "Invalid exp");
