@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {Header, RSAPubKey} from "../types/OidcStructs.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {RSA} from "@openzeppelin/contracts/utils/cryptography/RSA.sol";
-import {RSAPubKey, Header} from "../types/OidcStructs.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
+import {RSA} from "@openzeppelin/contracts/utils/cryptography/RSA.sol";
 
 contract OidcSignatureVerification is Ownable {
     /// @notice Event emitted when a new OIDC RSA public key is added

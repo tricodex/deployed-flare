@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ITokenType} from "./interfaces/ITokenType.sol";
 import {IAttestation} from "./interfaces/IAttestation.sol";
+import {ITokenType} from "./interfaces/ITokenType.sol";
 import {
-    VtpmConfig,
     BaseVtpmConfig,
-    SignatureVerificationFailed,
+    Header,
     PayloadValidationFailed,
-    Header
+    SignatureVerificationFailed,
+    VtpmConfig
 } from "./types/Common.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title FlareVtpmAttestation

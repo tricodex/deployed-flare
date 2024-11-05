@@ -7,7 +7,7 @@ import {console} from "forge-std/console.sol";
 import {FlareVtpmAttestation} from "../src/FlareVtpmAttestation.sol";
 import {OidcSignatureVerification} from "../src/verifiers/OidcSignatureVerification.sol";
 
-import {VtpmConfig, SignatureVerificationFailed, PayloadValidationFailed, Header} from "../src/types/Common.sol";
+import {Header, PayloadValidationFailed, SignatureVerificationFailed, VtpmConfig} from "../src/types/Common.sol";
 
 /**
  * @title FlareVtpmAttestationTest

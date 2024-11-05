@@ -3,6 +3,9 @@ name = "py"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
+authors = [
+  {name = "Dinesh Pinto", email = "annual.fallout_0z@icloud.com"},
+]
 requires-python = ">=3.12"
 dependencies = [
     "cryptography>=43.0.3",
