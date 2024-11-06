@@ -2,10 +2,7 @@
 pragma solidity >=0.8.20;
 
 /**
- * @title Interface standard that implement attestation contracts whose verification logic can be implemented
- * both on-chain and with Risc0 ZK proofs
- * @notice The interface simply provides two verification methods for a given attestation input.
- * The user can either pay a possibly hefty gas cost to fully verify an attestation fully on-chain
+ * @title Interface standard that implement attestation contracts.
  */
 interface IAttestation {
     /**

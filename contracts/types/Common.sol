@@ -8,7 +8,7 @@ struct Header {
 }
 
 /// @dev Struct representing the base vTPM configuration
-struct BaseVtpmConfig {
+struct BaseQuoteConfig {
     bytes hwmodel;
     bytes swname;
     bytes imageDigest;
@@ -17,13 +17,13 @@ struct BaseVtpmConfig {
 }
 
 /// @dev Struct representing the full vTPM configuration
-struct VtpmConfig {
+struct QuoteConfig {
     bytes32 digest;
-    BaseVtpmConfig base;
+    BaseQuoteConfig base;
     uint256 exp;
     uint256 iat;
 }
 
 // Custom reverts
-error SignatureVerificationFailed();
+error SignatureVerificationFailed(string errorMsg);
 error PayloadValidationFailed(string errorMsg);

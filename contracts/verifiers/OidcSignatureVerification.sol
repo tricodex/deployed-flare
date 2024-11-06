@@ -40,7 +40,7 @@ contract OidcSignatureVerification is Ownable {
      * @param rawSignature The RSA signature of the JWT (after Base64URL decoding).
      * @param header The parsed header.
      * @return verified True if the signature is verified.
-     * @return digest The SHA256 hash of the signing input (header + "." + payload).
+     * @return digest The SHA256 hash of the signing input SHA256(B64(header) + "." + B64(payload)).
      */
     function verifySignature(
         bytes calldata rawHeader,

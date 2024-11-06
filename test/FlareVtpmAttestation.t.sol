@@ -4,10 +4,12 @@ pragma solidity ^0.8.20;
 import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 
-import {FlareVtpmAttestation} from "../src/FlareVtpmAttestation.sol";
-import {OidcSignatureVerification} from "../src/verifiers/OidcSignatureVerification.sol";
+import {FlareVtpmAttestation} from "../contracts/FlareVtpmAttestation.sol";
+import {OidcSignatureVerification} from "../contracts/verifiers/OidcSignatureVerification.sol";
 
-import {Header, PayloadValidationFailed, SignatureVerificationFailed, VtpmConfig} from "../src/types/Common.sol";
+import {
+    Header, PayloadValidationFailed, QuoteConfig, SignatureVerificationFailed
+} from "../contracts/types/Common.sol";
 
 /**
  * @title FlareVtpmAttestationTest
@@ -55,7 +57,7 @@ contract FlareVtpmAttestationTest is Test {
         vm.warp((IAT + EXP) / 2);
 
         // Set the required vTPM configuration in the contract
-        flareVtpm.setBaseVtpmConfig(HWMODEL, SWNAME, IMAGEDIGEST, ISS, SECBOOT);
+        flareVtpm.setBaseQuoteConfig(HWMODEL, SWNAME, IMAGEDIGEST, ISS, SECBOOT);
 
         oidcVerifier = new OidcSignatureVerification();
         flareVtpm.setTokenTypeVerifier(address(oidcVerifier));
@@ -92,7 +94,7 @@ contract FlareVtpmAttestationTest is Test {
      * and that the extracted values match the expected configuration.
      */
     function test_parsePayload() public view {
-        VtpmConfig memory config = flareVtpm.parsePayload(PAYLOAD);
+        QuoteConfig memory config = flareVtpm.parsePayload(PAYLOAD);
 
         assertEq(config.exp, EXP, "Invalid exp");
         assertEq(config.iat, IAT, "Invalid iat");

@@ -3,7 +3,7 @@ pragma solidity >=0.8.0;
 
 import {Header} from "../types/Common.sol";
 
-interface ITokenType {
+interface IVerification {
     /// @dev immutable
     function tokenType() external pure returns (bytes memory);
 

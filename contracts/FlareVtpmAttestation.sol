@@ -2,13 +2,13 @@
 pragma solidity ^0.8.20;
 
 import {IAttestation} from "./interfaces/IAttestation.sol";
-import {ITokenType} from "./interfaces/ITokenType.sol";
+import {IVerification} from "./interfaces/IVerification.sol";
 import {
-    BaseVtpmConfig,
+    BaseQuoteConfig,
     Header,
     PayloadValidationFailed,
-    SignatureVerificationFailed,
-    VtpmConfig
+    QuoteConfig,
+    SignatureVerificationFailed
 } from "./types/Common.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -18,24 +18,18 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
  */
 contract FlareVtpmAttestation is IAttestation, Ownable {
     /// @notice Mapping of registered vTPM configurations by address
-    mapping(address => VtpmConfig) public registeredQuotes;
+    mapping(address => QuoteConfig) public registeredQuotes;
 
     /// @notice Event emitted when a new quote is registered
-    event QuoteRegistered(address indexed sender, VtpmConfig config);
+    event QuoteRegistered(address indexed sender, QuoteConfig config);
 
-    /// @notice Event emitted when the base vTPM configuration is updated
-    event BaseVtpmConfigUpdated(string indexed imageDigest, string hwname, string swname, string iss, bool secboot);
+    /// @notice Event emitted when the base vTPM quote configuration is updated
+    event BaseQuoteConfigUpdated(string indexed imageDigest, string hwname, string swname, string iss, bool secboot);
 
     /// @notice The required base vTPM configuration for verification
-    BaseVtpmConfig internal requiredConfig;
+    BaseQuoteConfig internal requiredConfig;
 
-    mapping(bytes tokenType => ITokenType verifier) public tokenTypeVerifiers;
-
-    /// @dev Struct representing an RSA public key
-    struct RSAPubKey {
-        bytes e; // Exponent
-        bytes n; // Modulus
-    }
+    mapping(bytes tokenType => IVerification verifier) public tokenTypeVerifiers;
 
     /**
      * @dev Constructor that sets the deployer as the initial owner.
@@ -43,7 +37,7 @@ contract FlareVtpmAttestation is IAttestation, Ownable {
     constructor() Ownable(msg.sender) {}
 
     function setTokenTypeVerifier(address verifier) external onlyOwner {
-        ITokenType tokenTypeVerifier = ITokenType(verifier);
+        IVerification tokenTypeVerifier = IVerification(verifier);
         tokenTypeVerifiers[tokenTypeVerifier.tokenType()] = tokenTypeVerifier;
     }
 
@@ -56,7 +50,7 @@ contract FlareVtpmAttestation is IAttestation, Ownable {
      * @param iss The issuer.
      * @param secboot Indicates if secure boot is enabled.
      */
-    function setBaseVtpmConfig(
+    function setBaseQuoteConfig(
         string calldata hwmodel,
         string calldata swname,
         string calldata imageDigest,
@@ -69,14 +63,14 @@ contract FlareVtpmAttestation is IAttestation, Ownable {
         requiredConfig.iss = bytes(iss);
         requiredConfig.secboot = secboot;
 
-        emit BaseVtpmConfigUpdated(imageDigest, hwmodel, swname, iss, secboot);
+        emit BaseQuoteConfigUpdated(imageDigest, hwmodel, swname, iss, secboot);
     }
 
     /**
-     * @dev Verifies an RSA-signed JWT and registers the token if verification succeeds.
+     * @dev Verifies a JWT and registers the token if verification succeeds.
      * @param rawHeader The JWT header as bytes (Base64URL decoded).
      * @param rawPayload The JWT payload as bytes (Base64URL decoded).
-     * @param rawSignature The RSA signature of the JWT.
+     * @param rawSignature The signature of the JWT.
      * @return success True if the token was successfully verified and registered.
      */
     function verifyAndAttest(bytes calldata rawHeader, bytes calldata rawPayload, bytes calldata rawSignature)
@@ -86,19 +80,19 @@ contract FlareVtpmAttestation is IAttestation, Ownable {
         // Parse the Key ID (kid) from the JWT header
         Header memory header = parseHeader(rawHeader);
 
-        ITokenType quoteVerifier = tokenTypeVerifiers[header.tokenType];
-        if (address(quoteVerifier) == address(0)) {
-            revert SignatureVerificationFailed();
+        IVerification verifier = tokenTypeVerifiers[header.tokenType];
+        if (address(verifier) == address(0)) {
+            revert SignatureVerificationFailed("invalid signature verifier");
         }
 
         // Verify the signature of the JWT
-        (bool verified, bytes32 digest) = quoteVerifier.verifySignature(rawHeader, rawPayload, rawSignature, header);
+        (bool verified, bytes32 digest) = verifier.verifySignature(rawHeader, rawPayload, rawSignature, header);
         if (!verified) {
-            revert SignatureVerificationFailed();
+            revert SignatureVerificationFailed("signature does not match");
         }
 
         // Parse the payload to extract the vTPM configuration
-        VtpmConfig memory payloadConfig = parsePayload(rawPayload);
+        QuoteConfig memory payloadConfig = parsePayload(rawPayload);
 
         // Ensure that the payload contains the required fields
         if (payloadConfig.exp < block.timestamp) {
@@ -155,7 +149,7 @@ contract FlareVtpmAttestation is IAttestation, Ownable {
      * @param payload The JWT payload as bytes (after Base64URL decoding).
      * @return config The parsed vTPM configuration.
      */
-    function parsePayload(bytes calldata payload) public view returns (VtpmConfig memory config) {
+    function parsePayload(bytes calldata payload) public view returns (QuoteConfig memory config) {
         // Extract the 'exp' (expiration time) from the payload
         config.exp = hexToTimestamp(payload[38:48]);
 
