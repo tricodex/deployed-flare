@@ -7,7 +7,7 @@ struct Header {
     bytes tokenType;
 }
 
-/// @dev Struct representing the base vTPM configuration
+/// @dev Struct representing the base vTPM quote configuration
 struct BaseQuoteConfig {
     bytes hwmodel;
     bytes swname;
@@ -16,7 +16,7 @@ struct BaseQuoteConfig {
     bool secboot;
 }
 
-/// @dev Struct representing the full vTPM configuration
+/// @dev Struct representing the full vTPM quote configuration
 struct QuoteConfig {
     bytes32 digest;
     BaseQuoteConfig base;
@@ -27,3 +27,4 @@ struct QuoteConfig {
 // Custom reverts
 error SignatureVerificationFailed(string errorMsg);
 error PayloadValidationFailed(string errorMsg);
+error InvalidVerifier();

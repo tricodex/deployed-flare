@@ -3,52 +3,67 @@ pragma solidity ^0.8.20;
 
 import {IAttestation} from "./interfaces/IAttestation.sol";
 import {IVerification} from "./interfaces/IVerification.sol";
-import {
-    BaseQuoteConfig,
-    Header,
-    PayloadValidationFailed,
-    QuoteConfig,
-    SignatureVerificationFailed
-} from "./types/Common.sol";
+import {BaseQuoteConfig, Header, QuoteConfig} from "./types/Common.sol";
+import {InvalidVerifier, PayloadValidationFailed, SignatureVerificationFailed} from "./types/Common.sol";
+import {ParserUtils} from "./utils/ParserUtils.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title FlareVtpmAttestation
- * @dev Contract for verifying RSA-signed JWTs and registering vTPM attestations.
+ * @dev A contract for verifying RSA-signed JWTs and registering virtual Trusted Platform Module (vTPM) attestations.
+ * Allows for configuring required vTPM specifications and validating token-based attestations.
  */
 contract FlareVtpmAttestation is IAttestation, Ownable {
-    /// @notice Mapping of registered vTPM configurations by address
+    /// @notice Stores the vTPM configurations for each registered address
     mapping(address => QuoteConfig) public registeredQuotes;
 
-    /// @notice Event emitted when a new quote is registered
+    /// @notice Event emitted when a new vTPM quote configuration is registered
     event QuoteRegistered(address indexed sender, QuoteConfig config);
 
-    /// @notice Event emitted when the base vTPM quote configuration is updated
-    event BaseQuoteConfigUpdated(string indexed imageDigest, string hwname, string swname, string iss, bool secboot);
+    /// @notice Event emitted when the base vTPM configuration requirements are updated
+    event BaseQuoteConfigUpdated(string indexed imageDigest, string hwmodel, string swname, string iss, bool secboot);
 
-    /// @notice The required base vTPM configuration for verification
+    /// @notice The required base configuration for a vTPM to be considered valid
     BaseQuoteConfig internal requiredConfig;
 
-    mapping(bytes tokenType => IVerification verifier) public tokenTypeVerifiers;
+    /// @notice Mapping of token types to their respective verifier contracts
+    mapping(bytes => IVerification) public tokenTypeVerifiers;
 
     /**
-     * @dev Constructor that sets the deployer as the initial owner.
+     * @dev Initializes the contract, setting the deployer as the initial owner.
      */
     constructor() Ownable(msg.sender) {}
 
+    /**
+     * @dev Assigns a verifier contract to handle a specific token type.
+     * @param verifier Address of the contract implementing the IVerification interface for this token type.
+     */
     function setTokenTypeVerifier(address verifier) external onlyOwner {
         IVerification tokenTypeVerifier = IVerification(verifier);
-        tokenTypeVerifiers[tokenTypeVerifier.tokenType()] = tokenTypeVerifier;
+        bytes memory tokenType = tokenTypeVerifier.tokenType();
+        if (tokenType.length == 0) {
+            revert InvalidVerifier();
+        }
+        tokenTypeVerifiers[tokenType] = tokenTypeVerifier;
     }
 
     /**
-     * @dev Sets the required base vTPM configuration for verification.
-     * Only callable by the contract owner.
-     * @param hwmodel The hardware model.
-     * @param swname The software name.
-     * @param imageDigest The image digest.
-     * @param iss The issuer.
-     * @param secboot Indicates if secure boot is enabled.
+     * @dev Retrieves the registered vTPM quote configuration for a specific address.
+     * @param quoteAddress Address of the vTPM owner.
+     * @return QuoteConfig The configuration details associated with `quoteAddress`.
+     */
+    function getRegisteredQuote(address quoteAddress) external view returns (QuoteConfig memory) {
+        return registeredQuotes[quoteAddress];
+    }
+
+    /**
+     * @dev Updates the required base configuration parameters for vTPM verification.
+     * Only the contract owner can set the configuration.
+     * @param hwmodel Hardware model of the device.
+     * @param swname Software name or OS associated with the vTPM.
+     * @param imageDigest Digest of the image used for verification.
+     * @param iss The issuer string for the vTPM.
+     * @param secboot Boolean indicating whether secure boot is required.
      */
     function setBaseQuoteConfig(
         string calldata hwmodel,
@@ -57,70 +72,54 @@ contract FlareVtpmAttestation is IAttestation, Ownable {
         string calldata iss,
         bool secboot
     ) external onlyOwner {
-        requiredConfig.hwmodel = bytes(hwmodel);
-        requiredConfig.swname = bytes(swname);
-        requiredConfig.imageDigest = bytes(imageDigest);
-        requiredConfig.iss = bytes(iss);
-        requiredConfig.secboot = secboot;
+        requiredConfig = BaseQuoteConfig({
+            hwmodel: bytes(hwmodel),
+            swname: bytes(swname),
+            imageDigest: bytes(imageDigest),
+            iss: bytes(iss),
+            secboot: secboot
+        });
 
         emit BaseQuoteConfigUpdated(imageDigest, hwmodel, swname, iss, secboot);
     }
 
     /**
-     * @dev Verifies a JWT and registers the token if verification succeeds.
-     * @param rawHeader The JWT header as bytes (Base64URL decoded).
-     * @param rawPayload The JWT payload as bytes (Base64URL decoded).
-     * @param rawSignature The signature of the JWT.
-     * @return success True if the token was successfully verified and registered.
+     * @dev Verifies a JWT-based attestation and, if valid, registers the token for the caller.
+     * Uses the `tokenTypeVerifiers` to validate the signature and payload against the expected configuration.
+     * @param header JWT header as a Base64URL-decoded byte array.
+     * @param payload JWT payload as a Base64URL-decoded byte array.
+     * @param signature Signature associated with the JWT.
+     * @return success Boolean indicating if the attestation was successfully verified and registered.
      */
-    function verifyAndAttest(bytes calldata rawHeader, bytes calldata rawPayload, bytes calldata rawSignature)
+    function verifyAndAttest(bytes calldata header, bytes calldata payload, bytes calldata signature)
         external
         returns (bool success)
     {
-        // Parse the Key ID (kid) from the JWT header
-        Header memory header = parseHeader(rawHeader);
+        // Parse the JWT header to obtain the token type
+        Header memory parsedHeader = parseHeader(header);
 
-        IVerification verifier = tokenTypeVerifiers[header.tokenType];
+        // Retrieve the verifier based on the token type
+        IVerification verifier = tokenTypeVerifiers[parsedHeader.tokenType];
         if (address(verifier) == address(0)) {
-            revert SignatureVerificationFailed("invalid signature verifier");
+            revert InvalidVerifier();
         }
 
-        // Verify the signature of the JWT
-        (bool verified, bytes32 digest) = verifier.verifySignature(rawHeader, rawPayload, rawSignature, header);
+        // Verify the JWT signature
+        (bool verified, bytes32 digest) = verifier.verifySignature(header, payload, signature, parsedHeader);
         if (!verified) {
-            revert SignatureVerificationFailed("signature does not match");
+            revert SignatureVerificationFailed("Signature does not match");
         }
 
-        // Parse the payload to extract the vTPM configuration
-        QuoteConfig memory payloadConfig = parsePayload(rawPayload);
+        // Parse the JWT payload to obtain the vTPM configuration
+        QuoteConfig memory payloadConfig = parsePayload(payload);
 
-        // Ensure that the payload contains the required fields
-        if (payloadConfig.exp < block.timestamp) {
-            revert PayloadValidationFailed("invalid 'exp' in payload");
-        }
-        if (payloadConfig.iat > block.timestamp) {
-            revert PayloadValidationFailed("invalid 'iat' in payload");
-        }
-        if (keccak256(payloadConfig.base.iss) != keccak256(requiredConfig.iss)) {
-            revert PayloadValidationFailed("invalid 'iss' in payload");
-        }
-        if (payloadConfig.base.secboot != requiredConfig.secboot) {
-            revert PayloadValidationFailed("invalid 'secboot' in payload");
-        }
-        if (keccak256(payloadConfig.base.hwmodel) != keccak256(requiredConfig.hwmodel)) {
-            revert PayloadValidationFailed("invalid 'hwmodel' in payload");
-        }
-        if (keccak256(payloadConfig.base.swname) != keccak256(requiredConfig.swname)) {
-            revert PayloadValidationFailed("invalid 'swname' in payload");
-        }
-        if (keccak256(payloadConfig.base.imageDigest) != keccak256(requiredConfig.imageDigest)) {
-            revert PayloadValidationFailed("invalid 'imageDigest' in payload");
-        }
+        // Validate the configuration in the payload
+        validatePayload(payloadConfig);
 
-        // Assign the computed digest to the payload configuration
+        // Assign the verified digest to the configuration for record-keeping
         payloadConfig.digest = digest;
 
-        // Register the token
+        // Register the vTPM attestation for the sender
         registeredQuotes[msg.sender] = payloadConfig;
 
         emit QuoteRegistered(msg.sender, payloadConfig);
@@ -129,15 +128,15 @@ contract FlareVtpmAttestation is IAttestation, Ownable {
     }
 
     /**
-     * @dev Parses the Key ID (kid) from the JWT header.
-     * @param rawHeader The JWT header as bytes (after Base64URL decoding).
-     * @return header The Header struct extracted from rawHeader.
+     * @dev Parses the JWT header to extract metadata such as `tokenType` and `kid`.
+     * Assumes a JSON structure with fields "kid" and "x5c" (PKI type) or "OIDC" as the default.
+     * @param rawHeader Base64URL-decoded byte array representing the JWT header.
+     * @return header A `Header` struct containing the parsed header information.
      */
-    function parseHeader(bytes calldata rawHeader) public pure returns (Header memory header) {
-        // Extract the 'kid' field from the header
-        // Assumes that the 'kid' is located at bytes 22 to 62 in the header
-        header.kid = rawHeader[22:62];
-        if (contains(rawHeader, bytes("x5c"))) {
+    function parseHeader(bytes calldata rawHeader) internal pure returns (Header memory header) {
+        // Extract "kid" field from the header
+        header.kid = ParserUtils.extractStringValue(rawHeader, '"kid":"');
+        if (ParserUtils.contains(rawHeader, bytes('"x5c":'))) {
             header.tokenType = bytes("PKI");
         } else {
             header.tokenType = bytes("OIDC");
@@ -145,87 +144,47 @@ contract FlareVtpmAttestation is IAttestation, Ownable {
     }
 
     /**
-     * @dev Parses the JWT payload to extract the vTPM configuration.
-     * @param payload The JWT payload as bytes (after Base64URL decoding).
-     * @return config The parsed vTPM configuration.
+     * @dev Parses the JWT payload to extract the vTPM configuration values.
+     * @param rawPayload Base64URL-decoded byte array representing the JWT payload.
+     * @return config A `QuoteConfig` struct with the parsed vTPM configuration values.
      */
-    function parsePayload(bytes calldata payload) public view returns (QuoteConfig memory config) {
-        // Extract the 'exp' (expiration time) from the payload
-        config.exp = hexToTimestamp(payload[38:48]);
-
-        // Extract the 'iat' (issued at time) from the payload
-        config.iat = hexToTimestamp(payload[55:65]);
-
-        // Extract the 'iss' (issuer) from the payload
-        config.base.iss = payload[73:117];
-
-        // Determine if 'secboot' (secure boot) is true or false in the payload
-        if (contains(payload, bytes("true"))) {
-            config.base.secboot = true;
-        } else {
-            config.base.secboot = false;
-        }
-
-        // Check if the payload contains the required 'hwmodel'
-        if (contains(payload, requiredConfig.hwmodel)) {
-            config.base.hwmodel = requiredConfig.hwmodel;
-        }
-
-        // Check if the payload contains the required 'swname'
-        if (contains(payload, requiredConfig.swname)) {
-            config.base.swname = requiredConfig.swname;
-        }
-
-        // Check if the payload contains the required 'imageDigest'
-        if (contains(payload, requiredConfig.imageDigest)) {
-            config.base.imageDigest = requiredConfig.imageDigest;
-        }
+    function parsePayload(bytes calldata rawPayload) internal pure returns (QuoteConfig memory config) {
+        // Extract each field from the payload JSON
+        config.exp = ParserUtils.extractUintValue(rawPayload, '"exp":');
+        config.iat = ParserUtils.extractUintValue(rawPayload, '"iat":');
+        config.base.iss = ParserUtils.extractStringValue(rawPayload, '"iss":"');
+        config.base.secboot = ParserUtils.extractBoolValue(rawPayload, '"secboot":');
+        config.base.hwmodel = ParserUtils.extractStringValue(rawPayload, '"hwmodel":"');
+        config.base.swname = ParserUtils.extractStringValue(rawPayload, '"swname":"');
+        config.base.imageDigest = ParserUtils.extractStringValue(rawPayload, '"image_digest":"');
     }
 
     /**
-     * @dev Checks if a bytes sequence (needle) exists within another bytes sequence (haystack).
-     * @param haystack The bytes sequence to search within.
-     * @param needle The bytes sequence to search for.
-     * @return exists True if the needle is found within the haystack.
+     * @dev Validates the parsed vTPM payload configuration against the required configuration.
+     * Ensures that the configuration fields match the required values and checks the JWT's validity period.
+     * @param config The vTPM configuration obtained from the JWT payload.
      */
-    function contains(bytes memory haystack, bytes memory needle) internal pure returns (bool exists) {
-        // Edge cases
-        if (needle.length == 0) {
-            return true; // An empty needle is always found
+    function validatePayload(QuoteConfig memory config) internal view {
+        if (config.exp < block.timestamp) {
+            revert PayloadValidationFailed("Invalid expiry time");
         }
-        if (needle.length > haystack.length) {
-            return false; // Needle longer than haystack can't be found
+        if (config.iat > block.timestamp) {
+            revert PayloadValidationFailed("Invalid issued at time");
         }
-
-        // Use a sliding window to compare slices
-        for (uint256 i = 0; i <= haystack.length - needle.length; i++) {
-            bool matchFound = true;
-            for (uint256 j = 0; j < needle.length; j++) {
-                if (haystack[i + j] != needle[j]) {
-                    matchFound = false;
-                    break;
-                }
-            }
-            if (matchFound) {
-                return true;
-            }
+        if (keccak256(config.base.iss) != keccak256(requiredConfig.iss)) {
+            revert PayloadValidationFailed("Invalid issuer");
         }
-        return false;
-    }
-
-    /**
-     * @dev Converts a bytes array representing an ASCII decimal number to uint256.
-     * @param hexBytes The bytes array to convert.
-     * @return result The uint256 representation of the ASCII decimal number.
-     */
-    function hexToTimestamp(bytes memory hexBytes) internal pure returns (uint256 result) {
-        require(hexBytes.length == 10, "Input should be 10 bytes long"); // solhint-disable-line gas-custom-errors
-
-        for (uint256 i = 0; i < hexBytes.length; i++) {
-            uint8 byteValue = uint8(hexBytes[i]);
-            // Ensure it's a digit (0-9)
-            require(byteValue >= 0x30 && byteValue <= 0x39, "Invalid character"); // solhint-disable-line gas-custom-errors
-            result = result * 10 + (byteValue - 0x30); // Convert ASCII to integer
+        if (config.base.secboot != requiredConfig.secboot) {
+            revert PayloadValidationFailed("Invalid 'secboot' value");
+        }
+        if (keccak256(config.base.hwmodel) != keccak256(requiredConfig.hwmodel)) {
+            revert PayloadValidationFailed("Invalid hardware model");
+        }
+        if (keccak256(config.base.swname) != keccak256(requiredConfig.swname)) {
+            revert PayloadValidationFailed("Invalid software name");
+        }
+        if (keccak256(config.base.imageDigest) != keccak256(requiredConfig.imageDigest)) {
+            revert PayloadValidationFailed("Invalid image digest");
         }
     }
 }
